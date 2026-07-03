@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Street Cruise - High Score Edition</title>
+    <style>
+        body { margin: 0; background: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; }
+        #game-container { position: relative; border: 8px solid #333; border-radius: 12px; box-shadow: 0 0 50px rgba(0,0,0,0.8); background: #2f3640; }
+        canvas { display: block; }
+        
+        /* UI 樣式 */
+        #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; }
+        .stat-card { background: rgba(0,0,0,0.75); padding: 12px; border-radius: 8px; margin-bottom: 10px; border-left: 5px solid #f1c40f; min-width: 140px; }
+        .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #bdc3c7; }
+        .value { font-size: 24px; font-weight: bold; font-family: 'Courier New', monospace; }
+        
+        /* 遮罩畫面 (開始與結束) */
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(0,0,0,0.85); color: white; text-align: center; border-radius: 4px; }
+        h1 { color: #f1c40f; margin: 0; font-size: 42px; text-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .btn-hint { margin-top: 30px; font-size: 18px; color: #bdc3c7; animation: blink 1s infinite; }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        
+        .bar-bg { width: 100px; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; margin-top: 6px; }
+        .bar-fill { height: 100%; width: 0%; border-radius: 3px; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="canvas" width="440" height="700"></canvas>
+        
+        <div id="ui">
+            <div class="stat-card">
+                <div class="label">Score</div>
+                <div class="value" id="scoreEl">0</div>
+            </div>
+            <div class="stat-card" style="border-left-color: #ecf0f1;">
+                <div class="label">Best</div>
+                <div class="value" id="bestEl">0</div>
+            </div>
+            <div id="shield-ui" class="stat-card" style="display:none; border-left-color: #00d2d3;">
+                <div class="label" style="color:#00d2d3">Shield</div>
+                <div class="bar-bg"><div id="shield-bar" class="bar-fill" style="background:#00d2d3"></div></div>
+            </div>
+            <div id="clock-ui" class="stat-card" style="display:none; border-left-color: #a29bfe;">
+                <div class="label" style="color:#a29bfe">Slow Mo</div>
+                <div class="bar-bg"><div id="clock-bar" class="bar-fill" style="background:#a29bfe"></div></div>
+            </div>
+        </div>
+
+        <div id="start-screen" class="overlay">
+            <h1>STREET CRUISE</h1>
+            <p style="color:#f1c40f; letter-spacing: 2px;">HIGHWAY CHALLENGE</p>
+            <div style="margin-top: 40px; text-align: left; background: rgba(255,255,255,0.1); padding: 20px; border-radius: 10px;">
+                <p>🎮 <b>Steer:</b> [A] [D] Keys</p>
+                <p>🛡️ <b>Shield:</b> Block 1 hit</p>
+                <p>⏱️ <b>Clock:</b> Slow down time</p>
+            </div>
+            <div class="btn-hint">Press [ SPACE ] to Start</div>
+        </div>
+
+        <div id="game-over" class="overlay" style="display: none;">
+            <h1 style="color:#e74c3c;">CRASHED!</h1>
+            <p style="font-size: 24px; margin: 10px 0;">Final Score: <span id="finalScore">0</span></p>
+            <p id="new-record" style="color:#f1c40f; display:none; font-weight:bold;">🏆 NEW RECORD! 🏆</p>
+            <div class="btn-hint">Press [ SPACE ] to Retry</div>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    let score = 0, frame = 0, speed = 3.2;
+    let gameActive = false; // 控制遊戲是否正在進行
+    let isGameOver = false;
+    let roadOffset = 0, shieldTime = 0, slowMoTime = 0;
+    let obstacles = [], items = [], scenery = [];
+    let highScore = localStorage.getItem('streetCruiseHigh') || 0;
+    
+    document.getElementById('bestEl').innerText = highScore;
+
+    const player = { x: 220, y: 550, color: '#3498db' };
+    const keys = { a: false, d: false };
+
+    window.addEventListener('keydown', e => { 
+        if(e.code === 'KeyA') keys.a = true; 
+        if(e.code === 'KeyD') keys.d = true; 
+        if(e.code === 'Space') {
+            if(!gameActive) startGame();
+        }
+    });
+    window.addEventListener('keyup', e => { 
+        if(e.code === 'KeyA') keys.a = false; 
+        if(e.code === 'KeyD') keys.d = false; 
+    });
+
+    function startGame() {
+        if(isGameOver) resetVariables();
+        gameActive = true;
+        isGameOver = false;
+        document.getElementById('start-screen').style.display = 'none';
+        document.getElementById('game-over').style.display = 'none';
+        loop();
+    }
+
+    function resetVariables() {
+        score = 0; frame = 0; speed = 3.2;
+        obstacles = []; items = []; scenery = [];
+        shieldTime = 0; slowMoTime = 0;
+        player.x = 220;
+    }
+
+    function createScenery() {
+        const side = Math.random() > 0.5;
+        scenery.push({ x: side ? Math.random()*60 : 380 + Math.random()*60, y: -60, type: Math.random() > 0.5 ? '🌲' : '🌳' });
+    }
+
+    function createObstacle() {
+        const lanes = [110, 185, 260, 335];
+        const x = lanes[Math.floor(Math.random() * lanes.length)];
+        const rand = Math.random();
+        let obj = { x, y: -100 };
+        if (rand > 0.75) {
+            obj.type = Math.random() > 0.5 ? 'cone' : 'barrier';
+            obj.speed = 0; 
+        } else {
+            const isPolice = score > 1500 && Math.random() > 0.85;
+            obj.type = isPolice ? 'police' : 'car';
+            obj.speed = isPolice ? 2.0 : 0.5 + Math.random() * (speed * 0.4);
+            obj.color = isPolice ? '#2c3e50' : ['#e67e22', '#c0392b', '#16a085', '#d35400'][Math.floor(Math.random()*4)];
+            obj.drift = isPolice ? (Math.random() > 0.5 ? 1.0 : -1.0) : 0;
+        }
+        obstacles.push(obj);
+    }
+
+    function createItem() {
+        const rand = Math.random();
+        let type = rand > 0.92 ? 'shield' : (rand > 0.82 ? 'clock' : 'coin');
+        items.push({ x: 100 + Math.random() * 240, y: -50, type });
+    }
+
+    function drawModernCar(x, y, color, isPlayer, type) {
+        ctx.save(); ctx.translate(x, y);
+        ctx.fillStyle = "rgba(0,0,0,0.15)"; ctx.fillRect(-17, 6, 38, 76);
+        ctx.fillStyle = color; ctx.beginPath(); ctx.roundRect(-19, 0, 38, 72, 6); ctx.fill();
+        ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(-15, 18, 30, 26); 
+        ctx.fillStyle = "#bdc3c7"; ctx.fillRect(-13, 21, 26, 16); 
+        if (isPlayer) { ctx.fillStyle = "#f1c40f"; ctx.fillRect(-16, 2, 7, 3); ctx.fillRect(9, 2, 7, 3); 
+        } else { ctx.fillStyle = "#e74c3c"; ctx.fillRect(-16, 68, 7, 3); ctx.fillRect(9, 68, 7, 3); }
+        if (type === 'police') {
+            const b = Math.floor(frame/10)%2;
+            ctx.fillStyle = b ? '#ff4757' : '#2f3542'; ctx.fillRect(-8, 30, 16, 6);
+        }
+        if (isPlayer && shieldTime > 0) {
+            ctx.strokeStyle = "#00d2d3"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 36, 48, 0, Math.PI*2); ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    function update() {
+        if (!gameActive) return;
+        frame++;
+        const steerSpeed = 5.0 + (speed * 0.12);
+        if(keys.a && player.x > 105) player.x -= steerSpeed;
+        if(keys.d && player.x < 335) player.x += steerSpeed;
+
+        let curSpeed = slowMoTime > 0 ? speed * 0.45 : speed;
+        if (shieldTime > 0) {
+            shieldTime--;
+            document.getElementById('shield-ui').style.display = 'block';
+            document.getElementById('shield-bar').style.width = (shieldTime/300*100)+'%';
+        } else document.getElementById('shield-ui').style.display = 'none';
+
+        if (slowMoTime > 0) {
+            slowMoTime--;
+            document.getElementById('clock-ui').style.display = 'block';
+            document.getElementById('clock-bar').style.width = (slowMoTime/180*100)+'%';
+        } else document.getElementById('clock-ui').style.display = 'none';
+
+        roadOffset += curSpeed;
+        if (frame % 60 === 0) createScenery();
+        if (frame % 80 === 0) createObstacle();
+        if (frame % 200 === 0) createItem();
+
+        scenery.forEach((s, i) => { s.y += curSpeed; if(s.y > 750) scenery.splice(i,1); });
+        obstacles.forEach((ob, i) => {
+            ob.y += curSpeed + (ob.speed || 0);
+            if (ob.type === 'police') { ob.x += ob.drift; if(ob.x < 110 || ob.x > 330) ob.drift *= -1; }
+            if (ob.y > 750) { obstacles.splice(i, 1); score += 10; }
+            if (Math.abs(player.x - ob.x) < 28 && Math.abs(player.y - ob.y) < 64) {
+                if (shieldTime > 0) { shieldTime = 0; obstacles.splice(i, 1); }
+                else endGame();
+            }
+        });
+
+        items.forEach((it, i) => {
+            it.y += curSpeed;
+            if (Math.abs(player.x - it.x) < 32 && Math.abs(player.y - it.y) < 40) {
+                if (it.type === 'coin') score += 100;
+                else if (it.type === 'shield') shieldTime = 300;
+                else if (it.type === 'clock') slowMoTime = 180;
+                items.splice(i, 1);
+            }
+            if (it.y > 750) items.splice(i, 1);
+        });
+
+        if (frame % 400 === 0 && speed < 13) speed += 0.45;
+        document.getElementById('scoreEl').innerText = score;
+    }
+
+    function draw() {
+        ctx.fillStyle = "#27ae60"; ctx.fillRect(0,0,440,700);
+        ctx.fillStyle = "#34495e"; ctx.fillRect(80,0,280,700);
+        ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.setLineDash([30, 45]);
+        ctx.lineDashOffset = -roadOffset * 1.5; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(150, 0); ctx.lineTo(150, 700); ctx.moveTo(220, 0); ctx.lineTo(220, 700);
+        ctx.moveTo(290, 0); ctx.lineTo(290, 700); ctx.stroke(); ctx.setLineDash([]);
+
+        scenery.forEach(s => { ctx.font = "30px Arial"; ctx.fillText(s.type, s.x - 15, s.y); });
+        items.forEach(it => {
+            ctx.save(); ctx.translate(it.x, it.y);
+            if (it.type === 'coin') {
+                ctx.fillStyle = "#f1c40f"; ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = "white"; ctx.font = "bold 12px Arial"; ctx.fillText("$", -3.5, 4.5);
+            } else { ctx.font = "24px Arial"; ctx.fillText(it.type === 'shield' ? '🛡️' : '⏱️', -12, 10); }
+            ctx.restore();
+        });
+        obstacles.forEach(ob => {
+            if (ob.type === 'car' || ob.type === 'police') drawModernCar(ob.x, ob.y, ob.color, false, ob.type);
+            else {
+                ctx.save(); ctx.translate(ob.x, ob.y);
+                if (ob.type === 'cone') { ctx.fillStyle = "#ff6b12"; ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(14, 18); ctx.lineTo(-14, 18); ctx.fill(); }
+                else if (ob.type === 'barrier') { ctx.fillStyle = "#7f8c8d"; ctx.fillRect(-18, 0, 36, 12); }
+                ctx.restore();
+            }
+        });
+        drawModernCar(player.x, player.y, player.color, true, 'player');
+    }
+
+    function endGame() { 
+        gameActive = false; isGameOver = true;
+        document.getElementById('game-over').style.display = 'flex'; 
+        document.getElementById('finalScore').innerText = score; 
+        if(score > highScore) {
+            highScore = score;
+            localStorage.setItem('streetCruiseHigh', highScore);
+            document.getElementById('bestEl').innerText = highScore;
+            document.getElementById('new-record').style.display = 'block';
+        } else {
+            document.getElementById('new-record').style.display = 'none';
+        }
+    }
+    
+    function loop() { 
+        update(); draw(); 
+        if (gameActive) requestAnimationFrame(loop); 
+    }
+    
+    // 初始繪製一次
+    draw();
+</script>
+</body>
+</html>
