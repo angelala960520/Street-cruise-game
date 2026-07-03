@@ -1,4 +1,4 @@
-# Street Cruise
+# Street Cruise🚘
 
 A small browser game where you steer a car through highway traffic, collect coins, and pick up power-ups.
 
