@@ -4,7 +4,7 @@ A small browser game where you steer a car through highway traffic, collect coin
 
 ## Play
 
-Open `index.html` in a browser.
+Open `cargame.html` in a browser.
 
 ## Controls
 
